@@ -25,7 +25,7 @@ jobs:
     - name: Checkout source code
       uses: actions/checkout@v6
 
-    - name: Build pathmask.ko and KernelSU package
+    - name: Build pathmask.ko
       run: |
         cd kernel
 
@@ -44,14 +44,8 @@ jobs:
         llvm-strip -d "/github/workspace/out/$OUTPUT_NAME"
         echo "Size after stripping: $(du -h "/github/workspace/out/$OUTPUT_NAME" | cut -f1)"
 
-        cd /github/workspace
-        sh ./tools/package_ksu.sh "out/$OUTPUT_NAME" "out/${{ inputs.kmi }}_pathmask-ksu.zip"
-        ls -la "out/${{ inputs.kmi }}_pathmask-ksu.zip"
-
     - name: Upload PathMask artifacts
       uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.kmi }}-pathmask
-        path: |
-          /github/workspace/out/${{ inputs.kmi }}_pathmask.ko
-          /github/workspace/out/${{ inputs.kmi }}_pathmask-ksu.zip
+        path: /github/workspace/out/${{ inputs.kmi }}_pathmask.ko

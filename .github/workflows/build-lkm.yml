@@ -46,7 +46,21 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release-upload
-          find release-assets -type f \( -name '*_pathmask.ko' -o -name '*_pathmask-ksu.zip' \) -exec cp {} release-upload/ \;
+          find release-assets -type f -name '*_pathmask.ko' -exec cp {} release-upload/ \;
+
+          found_ko=0
+          for ko in release-upload/*_pathmask.ko; do
+            [ -e "$ko" ] || continue
+            found_ko=1
+            base="$(basename "$ko" _pathmask.ko)"
+            sh ./tools/package_ksu.sh "$ko" "release-upload/${base}_pathmask-ksu.zip"
+          done
+
+          if [ "$found_ko" -eq 0 ]; then
+            echo "No PathMask .ko artifacts found." >&2
+            exit 1
+          fi
+
           ls -la release-upload
 
       - name: Publish release
