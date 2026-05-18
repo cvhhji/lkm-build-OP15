@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-KO_PATH="${1:-kernel/nohello.ko}"
-OUTPUT="${2:-out/nohello-ksu.zip}"
+KO_PATH="${1:-kernel/pathmask.ko}"
+OUTPUT="${2:-out/pathmask-ksu.zip}"
 TARGET_PATHS="${TARGET_PATHS:-${TARGET_PATH:-/dev/cpuset/scene-daemon,/dev/scene,/system_ext/app/SoterService}}"
 HIDE_DIRENTS="${HIDE_DIRENTS:-1}"
 SCOPE_MODE="${SCOPE_MODE:-deny}"
@@ -36,8 +36,8 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 	exit 1
 fi
 
-if ! command -v zip >/dev/null 2>&1; then
-	echo "Missing dependency: zip" >&2
+if ! command -v zip >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+	echo "Missing dependency: zip or python3" >&2
 	exit 1
 fi
 
@@ -45,7 +45,7 @@ rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR" "$(dirname -- "$OUTPUT")"
 
 cp -R "$TEMPLATE_DIR"/. "$STAGE_DIR"/
-cp "$KO_PATH" "$STAGE_DIR/nohello.ko"
+cp "$KO_PATH" "$STAGE_DIR/pathmask.ko"
 printf '%s' "$TARGET_PATHS" | tr ',' '\n' > "$STAGE_DIR/target_path.conf"
 printf '%s' "$HIDE_DIRENTS" > "$STAGE_DIR/hide_dirents.conf"
 printf '%s' "$SCOPE_MODE" > "$STAGE_DIR/scope_mode.conf"
@@ -56,7 +56,11 @@ printf '%s' "$PACKAGE_WAIT_SECONDS" > "$STAGE_DIR/package_wait_seconds.conf"
 chmod 0755 "$STAGE_DIR/service.sh" "$STAGE_DIR/uninstall.sh"
 
 rm -f "$OUTPUT"
-(cd "$STAGE_DIR" && zip -q -r "$OUTPUT" .)
+if command -v zip >/dev/null 2>&1; then
+	(cd "$STAGE_DIR" && zip -q -r "$OUTPUT" .)
+else
+	(cd "$STAGE_DIR" && python3 -m zipfile -c "$OUTPUT" .)
+fi
 
 echo "Created KernelSU package: $OUTPUT"
 echo "Target paths: $TARGET_PATHS"

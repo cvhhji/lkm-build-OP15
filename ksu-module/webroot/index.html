@@ -3,73 +3,152 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>NoHello</title>
+	<title>PathMask</title>
 	<link rel="stylesheet" href="./style.css">
 </head>
 <body>
 	<header class="topbar">
 		<div>
-			<h1>NoHello</h1>
-			<p id="statusText">正在加载...</p>
+			<h1>PathMask</h1>
+			<p id="statusText">正在读取状态...</p>
 		</div>
 		<button id="refreshBtn" type="button">刷新</button>
 	</header>
 
+	<nav class="tabs" aria-label="页面">
+		<button class="tab active" type="button" data-tab="config">配置</button>
+		<button class="tab" type="button" data-tab="diagnosis">诊断</button>
+		<button class="tab" type="button" data-tab="logs">日志</button>
+		<button class="tab" type="button" data-tab="report">报告</button>
+	</nav>
+
 	<main>
-		<section class="panel">
-			<div class="sectionTitle">
-				<h2>隐藏路径</h2>
-				<button id="addPathBtn" type="button">添加</button>
-			</div>
-			<div id="pathList" class="stack"></div>
-		</section>
-
-		<section class="panel">
-			<div class="sectionTitle">
-				<h2>作用范围</h2>
-			</div>
-			<div class="segmented">
-				<label>
-					<input type="radio" name="scope" value="global">
-					<span>全局</span>
-				</label>
-				<label>
-					<input type="radio" name="scope" value="deny">
-					<span>黑名单</span>
-				</label>
-			</div>
-			<label class="switchRow">
-				<span>隐藏上级目录列表项</span>
-				<input id="hideDirentsInput" type="checkbox">
-			</label>
-		</section>
-
-		<section class="panel">
-			<div class="sectionTitle">
-				<h2>应用黑名单</h2>
-				<div class="inlineControls">
-					<label class="miniToggle">
-						<input id="showSystemInput" type="checkbox">
-						<span>系统应用</span>
-					</label>
-					<button id="loadAppsBtn" type="button">加载</button>
+		<section id="configPanel" class="tabPanel active">
+			<section class="summaryGrid" aria-label="状态总览">
+				<div class="metric">
+					<span>模块状态</span>
+					<strong id="moduleState">未知</strong>
 				</div>
-			</div>
-			<input id="searchInput" class="search" type="search" placeholder="搜索包名">
-			<div id="appList" class="appList"></div>
+				<div class="metric">
+					<span>作用模式</span>
+					<strong id="scopeState">未知</strong>
+				</div>
+				<div class="metric">
+					<span>隐藏路径</span>
+					<strong id="targetCount">0</strong>
+				</div>
+				<div class="metric">
+					<span>黑名单 UID</span>
+					<strong id="uidCount">0</strong>
+				</div>
+			</section>
+
+			<section class="panel">
+				<div class="sectionTitle">
+					<h2>隐藏路径</h2>
+					<button id="addPathBtn" type="button">添加</button>
+				</div>
+				<div id="pathList" class="stack"></div>
+			</section>
+
+			<section class="panel">
+				<div class="sectionTitle">
+					<h2>作用范围</h2>
+				</div>
+				<div class="segmented">
+					<label>
+						<input type="radio" name="scope" value="global">
+						<span>全局</span>
+					</label>
+					<label>
+						<input type="radio" name="scope" value="deny">
+						<span>黑名单</span>
+					</label>
+				</div>
+				<label class="switchRow">
+					<span>隐藏上级目录列表项</span>
+					<input id="hideDirentsInput" type="checkbox">
+				</label>
+			</section>
+
+			<section class="panel">
+				<div class="sectionTitle">
+					<h2>应用黑名单</h2>
+					<div class="inlineControls">
+						<label class="miniToggle">
+							<input id="showSystemInput" type="checkbox">
+							<span>系统应用</span>
+						</label>
+						<button id="loadAppsBtn" type="button">加载</button>
+					</div>
+				</div>
+				<input id="searchInput" class="search" type="search" placeholder="搜索包名">
+				<div id="appList" class="appList"></div>
+			</section>
+
+			<section class="panel">
+				<div class="sectionTitle">
+					<h2>直接填写 UID</h2>
+				</div>
+				<textarea id="denyUidsInput" rows="4" spellcheck="false" placeholder="每行一个 UID"></textarea>
+			</section>
 		</section>
 
-		<section class="panel">
-			<div class="sectionTitle">
-				<h2>直接填写 UID</h2>
-			</div>
-			<textarea id="denyUidsInput" rows="4" spellcheck="false" placeholder="每行一个 UID"></textarea>
+		<section id="diagnosisPanel" class="tabPanel">
+			<section class="panel">
+				<div class="sectionTitle">
+					<h2>健康检查</h2>
+					<button id="runDiagnosticBtn" type="button">生成诊断</button>
+				</div>
+				<ul id="healthList" class="healthList"></ul>
+			</section>
+
+			<section class="panel">
+				<div class="sectionTitle">
+					<h2>快速操作</h2>
+				</div>
+				<div class="buttonGrid">
+					<button id="copyReportBtn" type="button">复制诊断报告</button>
+					<button id="resetDefaultsBtn" type="button">恢复默认配置</button>
+				</div>
+			</section>
+		</section>
+
+		<section id="logsPanel" class="tabPanel">
+			<section class="panel">
+				<div class="sectionTitle">
+					<h2>日志分页</h2>
+					<button id="refreshLogsBtn" type="button">刷新日志</button>
+				</div>
+				<div class="logTabs">
+					<button class="logTab active" type="button" data-log="script">脚本</button>
+					<button class="logTab" type="button" data-log="kernel">内核</button>
+					<button class="logTab" type="button" data-log="status">状态</button>
+					<button class="logTab" type="button" data-log="config">配置</button>
+				</div>
+				<textarea id="logOutput" class="monoBox" rows="16" readonly></textarea>
+				<div class="pager">
+					<button id="prevLogBtn" type="button">上一页</button>
+					<span id="logPageInfo">0 / 0</span>
+					<button id="nextLogBtn" type="button">下一页</button>
+				</div>
+			</section>
+		</section>
+
+		<section id="reportPanel" class="tabPanel">
+			<section class="panel">
+				<div class="sectionTitle">
+					<h2>诊断报告</h2>
+					<button id="copyReportBtn2" type="button">复制</button>
+				</div>
+				<textarea id="reportOutput" class="monoBox" rows="20" readonly placeholder="点击“生成诊断”后这里会出现可复制报告"></textarea>
+			</section>
 		</section>
 	</main>
 
 	<footer class="actions">
-		<button id="saveBtn" type="button">保存</button>
-		<button id="reloadBtn" type="button">保存并重载</button>
+		<button id="saveBtn" type="button">保存配置</button>
+		<button id="reloadBtn" type="button">保存并热重载</button>
 	</footer>
 
 	<div id="toast" class="toast" hidden></div>

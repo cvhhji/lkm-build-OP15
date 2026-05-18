@@ -1,4 +1,4 @@
-obj-m += nohello.o
+obj-m += pathmask.o
 
 ccflags-y += -Wno-strict-prototypes -Wno-int-conversion
 ccflags-y += -Wno-gcc-compat -Wno-missing-prototypes

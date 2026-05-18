@@ -1,23 +1,20 @@
-# NoHello LKM Demo
+# PathMask
 
-NoHello is a small Android arm64 / GKI external kernel module demo. It hides
-configured file paths from common filesystem operations by resolving target
-inodes at load time and installing kretprobes around VFS-related paths.
+PathMask is a small Android arm64 / GKI external kernel module demo for
+selectively masking configured filesystem paths. It is intended for controlled
+testing on devices you own or administer.
 
-This repository is intended for controlled lab/demo use on your own device or
-another device where you have explicit permission.
+For a beginner-friendly Chinese guide, see [README.zh-CN.md](README.zh-CN.md).
 
 ## What It Builds
 
-- `kernel/nohello.c`: kernel module source.
-- `kernel/Kbuild`: declares the external module target.
-- `kernel/Makefile`: invokes the Android/GKI kernel build tree.
-- `ksu-module/`: a minimal KernelSU module wrapper that loads `nohello.ko`.
-- `ksu-module/webroot/`: KernelSU WebUI for editing paths and App blacklist.
-- `tools/package_ksu.ps1` and `tools/package_ksu.sh`: package helpers.
-- `.github/workflows/`: GitHub Actions builds for multiple Android KMI targets.
+- `kernel/pathmask.c`: kernel module source.
+- `kernel/Kbuild`: external module target.
+- `ksu-module/`: KernelSU module wrapper and WebUI.
+- `tools/package_ksu.ps1` and `tools/package_ksu.sh`: packaging helpers.
+- `.github/workflows/`: CI builds for Android KMI targets and release uploads.
 
-The default demo target is:
+Default hidden paths:
 
 ```text
 /dev/cpuset/scene-daemon
@@ -25,7 +22,7 @@ The default demo target is:
 /system_ext/app/SoterService
 ```
 
-The KernelSU package defaults to deny scope for:
+Default deny-scope packages:
 
 ```text
 com.chunqiunativecheck
@@ -33,91 +30,65 @@ com.eltavine.duckdetector
 luna.safe.luna
 ```
 
-You can override it at load time with the legacy single-path parameter:
-
-```sh
-insmod /data/local/tmp/nohello.ko target_path=/data/local/tmp/nohello
-```
-
-For multiple paths, use `target_paths` with comma-separated absolute paths:
-
-```sh
-insmod /data/local/tmp/nohello.ko target_paths=/data/local/tmp/a,/data/local/tmp/b
-```
-
-Directory listing filtering can be disabled while keeping direct access hidden:
-
-```sh
-insmod /data/local/tmp/nohello.ko target_paths=/data/local/tmp/a,/data/local/tmp/b hide_dirents=0
-```
-
-To hide only from selected app UIDs, use deny scope:
-
-```sh
-insmod /data/local/tmp/nohello.ko target_paths=/data/local/tmp/a scope_mode=deny deny_uids=10123,10124
-```
-
 ## Current Status
-
-The project is demo-ready, but it is not a production hardening project.
 
 Implemented:
 
 - Hides direct access through `security_inode_permission`.
 - Hides stat/getattr-style checks through `security_inode_getattr`.
-- Filters `getdents64` results so the target is removed from directory lists.
-- Supports up to 16 configured target paths per module load.
-- Supports `scope_mode=global` and `scope_mode=deny`. Deny scope hides only
-  from configured app UIDs.
-- Provides a KernelSU wrapper template for boot-time loading.
-- Provides a KernelSU WebUI for managing paths, App blacklist, direct UID
-  blacklist, scope mode, and `hide_dirents`.
-- Stores KernelSU runtime config under `/data/adb/nohello`, so WebUI edits
-  survive module updates and reinstalls.
-- Provides a `hide_dirents` fallback parameter. Set it to `0` if directory
-  enumeration is unstable on a device.
+- Filters `getdents64` results so target entries disappear from directory
+  listings.
+- Supports up to 16 target paths per module load.
+- Supports `scope_mode=global` and `scope_mode=deny`.
+- Resolves package names to UIDs in the KernelSU boot service.
+- Stores runtime config under `/data/adb/pathmask`.
+- Migrates old `/data/adb/nohello` config on first PathMask boot.
+- Provides a KernelSU WebUI with config editing, health checks, paged logs, and
+  one-click diagnostic report copying.
+- Avoids direct `kern_path()` / `path_put()` usage. Target resolution uses
+  `filp_open()` / `filp_close()` so OEM kernels that prune unused
+  `kern_path/path_put` exports are less likely to reject the module.
 
 Known limitations:
 
-- At least one target path must exist before `insmod`, because the module
-  stores `(dev, inode)` identities at load time. Missing paths are skipped.
-- Directory-list filtering compares `d_ino`, because `getdents64` does not
-  expose the device id in each returned entry. A same-inode file on another
-  filesystem could be hidden from a listing, though direct access checks still
-  use both dev and inode.
+- At least one target path must exist before `insmod`; missing paths are
+  skipped.
+- Directory listing filtering compares `d_ino`; direct access checks still use
+  both inode and device.
 - Existing open file descriptors are not hidden retroactively.
 - The module must match the device KMI/kernel version and arm64 ABI.
-- `scope_mode=deny` requires app UIDs to be resolved before module load. The
-  KernelSU service resolves package names from `deny_packages.conf`.
-- Directory-list filtering is the riskiest part of this demo because it edits
-  the `getdents64` user buffer after the syscall returns. If `ls` appears to
-  hang, unload the module and retry with `hide_dirents=0`.
 - Proc mount text files such as `/proc/*/mountinfo` and `/proc/*/mounts` are
-  not filtered in this branch.
+  not filtered.
+- Hot reload is convenient, but reboot loading is safer on unstable kernels.
 
-## Build
+## GitHub Actions And Releases
 
-### GitHub Actions
-
-Push to `main` or run the `Build LKM for All KMI Targets` workflow manually.
-Artifacts are named like:
+Pushing to `main`, pushing a `v*` tag, or running the workflow manually builds:
 
 ```text
-android15-6.6_nohello.ko
+android12-5.10_pathmask.ko
+android12-5.10_pathmask-ksu.zip
+...
+android16-6.12_pathmask.ko
+android16-6.12_pathmask-ksu.zip
 ```
 
-Pick the artifact that matches your device KMI.
+Non-tag builds are uploaded to the `pathmask-latest` prerelease. Tag builds are
+uploaded to the matching version release.
 
-### Local DDK/Kernel Build
+Install the `*_pathmask-ksu.zip` file that matches your device KMI. The raw
+`.ko` is also uploaded for manual testing.
 
-If your DDK container exports `KDIR`, run:
+## Local Build
+
+If your DDK container exports `KDIR`:
 
 ```sh
 cd kernel
 CONFIG_KSU=m CC=clang make
 ```
 
-If you have a kernel build directory locally, pass it explicitly:
+With an explicit kernel build directory:
 
 ```sh
 cd kernel
@@ -127,177 +98,136 @@ make KDIR=/path/to/kernel/build
 The output is:
 
 ```text
-kernel/nohello.ko
+kernel/pathmask.ko
 ```
 
 ## Manual Test
 
-On the device:
-
 ```sh
 adb shell
 su
-echo "demo secret" > /data/local/tmp/nohello
-ls -l /data/local/tmp/nohello
-cat /data/local/tmp/nohello
+echo "demo secret" > /data/local/tmp/pathmask
+insmod /data/local/tmp/pathmask.ko target_path=/data/local/tmp/pathmask
+grep '^pathmask ' /proc/modules
+ls -l /data/local/tmp/pathmask
 ```
 
-Push and load the module:
+Multiple paths:
 
 ```sh
-adb push kernel/nohello.ko /data/local/tmp/nohello.ko
-adb shell
-su
-insmod /data/local/tmp/nohello.ko target_path=/data/local/tmp/nohello
-dmesg | grep nohello
+insmod /data/local/tmp/pathmask.ko target_paths=/data/local/tmp/a,/data/local/tmp/b
 ```
 
-To hide multiple paths manually:
+Deny scope:
 
 ```sh
-insmod /data/local/tmp/nohello.ko target_paths=/data/local/tmp/a,/data/local/tmp/b
+insmod /data/local/tmp/pathmask.ko target_paths=/data/local/tmp/a scope_mode=deny deny_uids=10123,10124
 ```
 
-To hide only from one app UID:
+Disable directory-list filtering:
 
 ```sh
-insmod /data/local/tmp/nohello.ko target_paths=/data/local/tmp/a scope_mode=deny deny_uids=10123
-```
-
-Verify:
-
-```sh
-ls -l /data/local/tmp/nohello
-cat /data/local/tmp/nohello
-stat /data/local/tmp/nohello
-ls -la /data/local/tmp
+insmod /data/local/tmp/pathmask.ko target_paths=/data/local/tmp/a hide_dirents=0
 ```
 
 Unload:
 
 ```sh
-rmmod nohello
+rmmod pathmask
 ```
 
 ## KernelSU Package
 
-`nohello.ko` is not installed directly in KernelSU. KernelSU installs a module
-zip, and that zip contains `nohello.ko` plus a `service.sh` script that calls
-`insmod`.
-
 Windows PowerShell:
 
 ```powershell
-.\tools\package_ksu.ps1 -KoPath .\kernel\nohello.ko -Output .\out\nohello-ksu.zip
-```
-
-By default this packages `/dev/cpuset/scene-daemon`, `/dev/scene`, and
-`/system_ext/app/SoterService` with `scope_mode=deny` for
-`com.chunqiunativecheck`, `com.eltavine.duckdetector`, and `luna.safe.luna`.
-
-Pass comma-separated values to `-TargetPath` for a multi-path package:
-
-```powershell
-.\tools\package_ksu.ps1 -KoPath .\kernel\nohello.ko -Output .\out\nohello-ksu.zip -TargetPath "/data/local/tmp/a,/data/local/tmp/b"
-```
-
-Use `-HideDirents 0` if you want direct-access hiding only.
-
-Use `-ScopeMode deny` and `-DenyPackage` / `-DenyUid` for a blacklist package:
-
-```powershell
-.\tools\package_ksu.ps1 -KoPath .\kernel\nohello.ko -Output .\out\nohello-ksu.zip -TargetPath "/system_ext/app/SoterService,/system/app/EasterEgg" -ScopeMode deny -DenyPackage "com.example.detector"
+.\tools\package_ksu.ps1 -KoPath .\kernel\pathmask.ko -Output .\out\pathmask-ksu.zip
 ```
 
 Linux/macOS shell:
 
 ```sh
-./tools/package_ksu.sh kernel/nohello.ko out/nohello-ksu.zip
+./tools/package_ksu.sh kernel/pathmask.ko out/pathmask-ksu.zip
 ```
 
-For multiple paths:
-
-```sh
-TARGET_PATHS=/data/local/tmp/a,/data/local/tmp/b ./tools/package_ksu.sh kernel/nohello.ko out/nohello-ksu.zip
-```
-
-Use `HIDE_DIRENTS=0` if you want direct-access hiding only.
-
-Use `SCOPE_MODE=deny` with package names or UIDs for blacklist mode:
-
-```sh
-SCOPE_MODE=deny DENY_PACKAGES=com.example.detector DENY_UIDS=10123 ./tools/package_ksu.sh kernel/nohello.ko out/nohello-ksu.zip
-```
-
-Runtime config lives in `/data/adb/nohello`. On first boot, `service.sh` seeds
-that folder from the module defaults and then reads from the persistent folder.
-`target_path.conf` supports one path per line:
-
-```text
-/data/local/tmp/a
-/data/local/tmp/b
-```
-
-Blacklist config files:
-
-```text
-scope_mode.conf       # global or deny
-hide_dirents.conf     # 1 or 0
-deny_packages.conf    # one package name per line
-deny_uids.conf        # one UID per line
-target_wait_seconds.conf
-package_wait_seconds.conf
-```
-
-The WebUI is available from KernelSU Manager after installing the module. It
-edits the persistent `/data/adb/nohello` files and can reload `nohello.ko`
-without requiring a reboot.
-
-In deny scope, `service.sh` waits for package UID resolution before loading.
-It also waits for configured paths so late-created `/dev` entries have a chance
-to exist before `nohello.ko` resolves target inodes.
-
-Paths that do not exist when `nohello.ko` loads are skipped. For dynamic paths
-such as `/data/incremental/...`, open the WebUI and use `Save & Reload` after
-the path exists, or reload manually. The WebUI uses short waits during manual
-reloads to keep the page responsive.
-
-Install `out/nohello-ksu.zip` in KernelSU Manager, reboot, then check:
-
-```sh
-su
-dmesg | grep nohello
-```
-
-To package a safer direct-access-only build:
+Override target paths:
 
 ```powershell
-.\tools\package_ksu.ps1 -KoPath .\kernel\nohello.ko -Output .\out\nohello-ksu-direct.zip -TargetPath /data/local/tmp/nohello -HideDirents 0
+.\tools\package_ksu.ps1 -KoPath .\kernel\pathmask.ko -Output .\out\pathmask-ksu.zip -TargetPath "/data/local/tmp/a,/data/local/tmp/b"
 ```
 
-You can also change it on the device after installation:
+Direct-access-only package:
+
+```powershell
+.\tools\package_ksu.ps1 -KoPath .\kernel\pathmask.ko -Output .\out\pathmask-direct.zip -TargetPath "/data/local/tmp/pathmask" -HideDirents 0
+```
+
+Blacklist package:
+
+```powershell
+.\tools\package_ksu.ps1 -KoPath .\kernel\pathmask.ko -Output .\out\pathmask-ksu.zip -ScopeMode deny -DenyPackage "com.example.detector"
+```
+
+Runtime config files:
+
+```text
+/data/adb/pathmask/target_path.conf
+/data/adb/pathmask/scope_mode.conf
+/data/adb/pathmask/hide_dirents.conf
+/data/adb/pathmask/deny_packages.conf
+/data/adb/pathmask/deny_uids.conf
+/data/adb/pathmask/target_wait_seconds.conf
+/data/adb/pathmask/package_wait_seconds.conf
+```
+
+## WebUI Diagnosis
+
+Open KernelSU Manager, enter PathMask WebUI, then use:
+
+- `配置`: edit paths, mode, packages, and direct UIDs.
+- `诊断`: view health checks and generate a report.
+- `日志`: page through script, kernel, status, and config logs.
+- `报告`: copy a single report for issue reports.
+
+When a user says "module not loaded", ask them to open `诊断 -> 生成诊断 ->
+复制诊断报告` and send the full text.
+
+## Quick Device Checks
 
 ```sh
 su
-echo 0 > /data/adb/nohello/hide_dirents.conf
-reboot
+grep '^pathmask ' /proc/modules
+cat /sys/module/pathmask/parameters/target_paths
+cat /sys/module/pathmask/parameters/scope_mode
+cat /sys/module/pathmask/parameters/deny_uids
+logcat -d -s pathmask
+dmesg | grep -Ei 'pathmask|unknown symbol|invalid module|module_layout'
 ```
+
+Common failure classes:
+
+- No `pathmask` in `/proc/modules`: boot service skipped or `insmod` failed.
+- `Unknown symbol`: kernel export/KMI mismatch.
+- Empty `deny_uids` in deny mode: package names did not resolve to UIDs.
+- All targets missing at boot: service skips loading.
+- Old `nohello` module loaded: uninstall the old module and reboot.
 
 ## Use Your Own Module
 
-Replace `kernel/nohello.c` with your module source and update `kernel/Kbuild`.
-For a single source file:
+Replace `kernel/pathmask.c` and update `kernel/Kbuild`.
+
+Single source file:
 
 ```makefile
 obj-m += mymod.o
 ```
 
-For multiple source files:
+Multiple source files:
 
 ```makefile
 obj-m += mymod.o
 mymod-y := mymod_main.o mymod_hook.o mymod_util.o
 ```
 
-Then update the KernelSU template and package scripts if your output module is
-not named `nohello.ko`.
+Then update the KernelSU template and packaging scripts if your output module is
+not named `pathmask.ko`.

@@ -1,6 +1,6 @@
-id=nohello-demo
-name=NoHello Demo
-version=1.4.0
-versionCode=7
+id=pathmask
+name=PathMask 路径遮罩
+version=2.0.0
+versionCode=8
 author=lkm-build
-description=Loads nohello.ko with persistent /data/adb config, hidden paths, and App blacklist WebUI.
+description=Loads pathmask.ko with persistent /data/adb config, hidden paths, App blacklist, and self-diagnosis WebUI.

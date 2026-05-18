@@ -1,10 +1,14 @@
-name: Build LKM for All KMI Targets
+name: Build PathMask for All KMI Targets
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-lkm:
@@ -22,3 +26,50 @@ jobs:
     with:
       kmi: ${{ matrix.kmi }}
       ddk_release: '20260313'
+
+  publish-release:
+    name: Publish module zips to GitHub Release
+    needs: build-lkm
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: release-assets
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-upload
+          find release-assets -type f \( -name '*_pathmask.ko' -o -name '*_pathmask-ksu.zip' \) -exec cp {} release-upload/ \;
+          ls -la release-upload
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            TITLE="PathMask ${GITHUB_REF_NAME}"
+            PRERELEASE_FLAG=""
+          else
+            TAG="pathmask-latest"
+            TITLE="PathMask latest"
+            PRERELEASE_FLAG="--prerelease"
+            git tag -f "$TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG" --force
+          fi
+
+          NOTES="Automated PathMask build for ${GITHUB_SHA}."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" $PRERELEASE_FLAG --latest=false
+          else
+            gh release create "$TAG" --title "$TITLE" --notes "$NOTES" $PRERELEASE_FLAG --latest=false
+          fi
+
+          gh release upload "$TAG" release-upload/* --clobber

@@ -1,10 +1,15 @@
 #!/system/bin/sh
 
 MODDIR=${0%/*}
-LOG_TAG=nohello
-KO_PATH="$MODDIR/nohello.ko"
-PERSIST_DIR="/data/adb/nohello"
-DEFAULTS_MARKER="$PERSIST_DIR/.defaults_v3_cleaned"
+MODULE_ID=pathmask
+LEGACY_MODULE_ID=nohello-demo
+LOG_TAG=pathmask
+KO_NAME=pathmask.ko
+KO_PATH="$MODDIR/$KO_NAME"
+PERSIST_DIR="/data/adb/pathmask"
+LEGACY_PERSIST_DIR="/data/adb/nohello"
+DEFAULTS_MARKER="$PERSIST_DIR/.defaults_v1_seeded"
+
 MOD_CONFIG_PATH="$MODDIR/target_path.conf"
 MOD_HIDE_DIRENTS_CONFIG="$MODDIR/hide_dirents.conf"
 MOD_SCOPE_MODE_CONFIG="$MODDIR/scope_mode.conf"
@@ -12,6 +17,7 @@ MOD_DENY_UIDS_CONFIG="$MODDIR/deny_uids.conf"
 MOD_DENY_PACKAGES_CONFIG="$MODDIR/deny_packages.conf"
 MOD_TARGET_WAIT_SECONDS_CONFIG="$MODDIR/target_wait_seconds.conf"
 MOD_PACKAGE_WAIT_SECONDS_CONFIG="$MODDIR/package_wait_seconds.conf"
+
 CONFIG_PATH="$PERSIST_DIR/target_path.conf"
 HIDE_DIRENTS_CONFIG="$PERSIST_DIR/hide_dirents.conf"
 SCOPE_MODE_CONFIG="$PERSIST_DIR/scope_mode.conf"
@@ -19,14 +25,14 @@ DENY_UIDS_CONFIG="$PERSIST_DIR/deny_uids.conf"
 DENY_PACKAGES_CONFIG="$PERSIST_DIR/deny_packages.conf"
 TARGET_WAIT_SECONDS_CONFIG="$PERSIST_DIR/target_wait_seconds.conf"
 PACKAGE_WAIT_SECONDS_CONFIG="$PERSIST_DIR/package_wait_seconds.conf"
+
 DEFAULT_TARGET_PATH_1="/dev/cpuset/scene-daemon"
 DEFAULT_TARGET_PATH_2="/dev/scene"
 DEFAULT_TARGET_PATH_3="/system_ext/app/SoterService"
-OLD_TARGET_PATH_MT="/data/incremental/MT_data_app_vmdl192"
 DEFAULT_DENY_PACKAGE_1="com.chunqiunativecheck"
 DEFAULT_DENY_PACKAGE_2="com.eltavine.duckdetector"
 DEFAULT_DENY_PACKAGE_3="luna.safe.luna"
-OLD_DENY_PACKAGE_HOLMES="me.garfieldhan.holmes"
+
 TARGET_PATHS=""
 HIDE_DIRENTS=1
 SCOPE_MODE=deny
@@ -107,17 +113,23 @@ ensure_config_line() {
 	fi
 }
 
-remove_config_line() {
-	DEST="$1"
-	LINE="$2"
+migrate_legacy_config() {
+	[ -d "$PERSIST_DIR" ] && return
+	[ -d "$LEGACY_PERSIST_DIR" ] || return
 
-	[ -f "$DEST" ] || return
-	TMP_FILE="$DEST.tmp.$$"
-	grep -Fxv "$LINE" "$DEST" > "$TMP_FILE" 2>/dev/null || true
-	mv "$TMP_FILE" "$DEST" 2>/dev/null || rm -f "$TMP_FILE"
+	if mkdir -p "$PERSIST_DIR" 2>/dev/null; then
+		for NAME in target_path.conf hide_dirents.conf scope_mode.conf deny_uids.conf deny_packages.conf target_wait_seconds.conf package_wait_seconds.conf; do
+			if [ -f "$LEGACY_PERSIST_DIR/$NAME" ]; then
+				cp "$LEGACY_PERSIST_DIR/$NAME" "$PERSIST_DIR/$NAME" 2>/dev/null || true
+			fi
+		done
+		log_i "migrated legacy config from $LEGACY_PERSIST_DIR"
+	fi
 }
 
 init_persistent_config() {
+	migrate_legacy_config
+
 	if ! mkdir -p "$PERSIST_DIR" 2>/dev/null; then
 		log_i "could not create $PERSIST_DIR, using module config"
 		CONFIG_PATH="$MOD_CONFIG_PATH"
@@ -140,8 +152,6 @@ init_persistent_config() {
 	seed_config_file "$PACKAGE_WAIT_SECONDS_CONFIG" "$MOD_PACKAGE_WAIT_SECONDS_CONFIG" "90"
 
 	if [ ! -f "$DEFAULTS_MARKER" ]; then
-		remove_config_line "$CONFIG_PATH" "$OLD_TARGET_PATH_MT"
-		remove_config_line "$DENY_PACKAGES_CONFIG" "$OLD_DENY_PACKAGE_HOLMES"
 		ensure_config_line "$CONFIG_PATH" "$DEFAULT_TARGET_PATH_1"
 		ensure_config_line "$CONFIG_PATH" "$DEFAULT_TARGET_PATH_2"
 		ensure_config_line "$CONFIG_PATH" "$DEFAULT_TARGET_PATH_3"
@@ -447,12 +457,12 @@ if [ -f "$PACKAGE_WAIT_SECONDS_CONFIG" ]; then
 	PACKAGE_WAIT_SECONDS="$(head -n 1 "$PACKAGE_WAIT_SECONDS_CONFIG" | tr -d '\r ')"
 fi
 
-if [ -n "$NOHELLO_TARGET_WAIT_SECONDS" ]; then
-	TARGET_WAIT_SECONDS="$NOHELLO_TARGET_WAIT_SECONDS"
+if [ -n "$PATHMASK_TARGET_WAIT_SECONDS" ]; then
+	TARGET_WAIT_SECONDS="$PATHMASK_TARGET_WAIT_SECONDS"
 fi
 
-if [ -n "$NOHELLO_PACKAGE_WAIT_SECONDS" ]; then
-	PACKAGE_WAIT_SECONDS="$NOHELLO_PACKAGE_WAIT_SECONDS"
+if [ -n "$PATHMASK_PACKAGE_WAIT_SECONDS" ]; then
+	PACKAGE_WAIT_SECONDS="$PATHMASK_PACKAGE_WAIT_SECONDS"
 fi
 
 case "$TARGET_WAIT_SECONDS" in
@@ -513,8 +523,13 @@ else
 	read_deny_package_config 0
 fi
 
+if grep -q '^pathmask ' /proc/modules 2>/dev/null; then
+	log_i "pathmask is already loaded"
+	exit 0
+fi
+
 if grep -q '^nohello ' /proc/modules 2>/dev/null; then
-	log_i "nohello is already loaded"
+	log_i "legacy nohello module is loaded; unload it before loading pathmask"
 	exit 0
 fi
 

@@ -1,4 +1,4 @@
-name: Build KernelSU Kernel Module (DDK)
+name: Build PathMask KernelSU Module (DDK)
 
 on:
   workflow_call:
@@ -14,8 +14,8 @@ on:
         type: string
 
 jobs:
-  build-nohello-ko:
-    name: Build nohello.ko for ${{ inputs.kmi }}
+  build-pathmask:
+    name: Build pathmask for ${{ inputs.kmi }}
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/ylarod/ddk-min:${{ inputs.kmi }}-${{ inputs.ddk_release }}
@@ -25,28 +25,33 @@ jobs:
     - name: Checkout source code
       uses: actions/checkout@v6
 
-    - name: Build nohello.ko
+    - name: Build pathmask.ko and KernelSU package
       run: |
         cd kernel
 
-        echo "=== Building nohello.ko for KMI: ${{ inputs.kmi }} ==="
+        echo "=== Building pathmask.ko for KMI: ${{ inputs.kmi }} ==="
 
         CONFIG_KSU=m CC=clang make
 
         echo "=== Build completed ==="
 
-        # Copy with KMI-specific naming
         mkdir -p /github/workspace/out
-        OUTPUT_NAME="${{ inputs.kmi }}_nohello.ko"
-        cp nohello.ko "/github/workspace/out/$OUTPUT_NAME"
+        OUTPUT_NAME="${{ inputs.kmi }}_pathmask.ko"
+        cp pathmask.ko "/github/workspace/out/$OUTPUT_NAME"
 
         echo "Copied to: /github/workspace/out/$OUTPUT_NAME"
         ls -la "/github/workspace/out/$OUTPUT_NAME"
         llvm-strip -d "/github/workspace/out/$OUTPUT_NAME"
         echo "Size after stripping: $(du -h "/github/workspace/out/$OUTPUT_NAME" | cut -f1)"
 
-    - name: Upload nohello.ko artifact
+        cd /github/workspace
+        sh ./tools/package_ksu.sh "out/$OUTPUT_NAME" "out/${{ inputs.kmi }}_pathmask-ksu.zip"
+        ls -la "out/${{ inputs.kmi }}_pathmask-ksu.zip"
+
+    - name: Upload PathMask artifacts
       uses: actions/upload-artifact@v7
       with:
-        name: ${{ inputs.kmi }}-lkm
-        path: /github/workspace/out/${{ inputs.kmi }}_nohello.ko
+        name: ${{ inputs.kmi }}-pathmask
+        path: |
+          /github/workspace/out/${{ inputs.kmi }}_pathmask.ko
+          /github/workspace/out/${{ inputs.kmi }}_pathmask-ksu.zip

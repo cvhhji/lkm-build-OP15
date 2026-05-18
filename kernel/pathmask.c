@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * nohello - hide a given file from all system calls (arm64 Android / GKI)
+ * PathMask - selective path hiding demo for Android arm64 / GKI.
  *
- * Uses kretprobes to intercept VFS operations and make the target file
- * appear as non-existent.  Identification is via the (inode, dev) pair.
- *
- * Tested on GKI kernels (android12-5.10 through android16-6.12).
- * Only the arm64 architecture is supported.
+ * The module stores target identities as (dev, inode) pairs and makes matching
+ * paths appear absent to selected UIDs or globally. Target resolution uses
+ * filp_open()/filp_close() instead of kern_path()/path_put() because some OEM
+ * stock kernels prune unused EXPORT_SYMBOL entries for kern_path/path_put from
+ * the final binary.
  */
 
 #include <linux/module.h>
@@ -15,8 +15,9 @@
 #include <linux/cred.h>
 #include <linux/dcache.h>
 #include <linux/err.h>
+#include <linux/file.h>
+#include <linux/fcntl.h>
 #include <linux/fs.h>
-#include <linux/namei.h>
 #include <linux/version.h>
 #include <linux/dirent.h>
 #include <linux/slab.h>
@@ -24,7 +25,7 @@
 #include <linux/uidgid.h>
 #include <linux/uaccess.h>
 
-/* ---------- module parameter ---------- */
+#define PM_LOG_PREFIX "pathmask: "
 #define MAX_HIDE_TARGETS 16
 #define MAX_DENY_UIDS 128
 #define TARGET_PATHS_LEN 2048
@@ -34,12 +35,12 @@
 #define ANDROID_ISOLATED_START 99000u
 #define ANDROID_ISOLATED_END 99999u
 
-enum nohello_scope_mode {
+enum pathmask_scope_mode {
 	SCOPE_GLOBAL = 0,
 	SCOPE_DENY,
 };
 
-static char *target_path = "/data/local/tmp/nohello";
+static char *target_path = "/data/local/tmp/pathmask";
 module_param(target_path, charp, 0644);
 MODULE_PARM_DESC(target_path, "Legacy single absolute path to hide");
 
@@ -63,7 +64,6 @@ static char deny_uids[UID_LIST_LEN];
 module_param_string(deny_uids, deny_uids, sizeof(deny_uids), 0644);
 MODULE_PARM_DESC(deny_uids, "Comma-separated UIDs hidden from targets");
 
-/* system-unique target identifiers */
 struct hidden_target {
 	dev_t dev;
 	unsigned long long ino;
@@ -72,16 +72,15 @@ struct hidden_target {
 
 static struct hidden_target targets[MAX_HIDE_TARGETS];
 static unsigned int target_count;
-static enum nohello_scope_mode active_scope = SCOPE_GLOBAL;
+static enum pathmask_scope_mode active_scope = SCOPE_GLOBAL;
 static uid_t deny_uid_list[MAX_DENY_UIDS];
 static unsigned int deny_uid_count;
 
-/* ---------- helper ---------- */
 static inline bool is_target_inode(const struct inode *inode)
 {
 	unsigned int i;
 
-	if (!inode)
+	if (!inode || !inode->i_sb)
 		return false;
 
 	for (i = 0; i < target_count; i++) {
@@ -158,14 +157,14 @@ static int parse_scope_mode(void)
 		return 0;
 	}
 
-	pr_err("nohello: unsupported scope_mode=%s\n", scope_mode);
+	pr_err(PM_LOG_PREFIX "unsupported scope_mode=%s\n", scope_mode);
 	return -EINVAL;
 }
 
 static int add_deny_uid(uid_t uid)
 {
 	if (deny_uid_count >= MAX_DENY_UIDS) {
-		pr_warn("nohello: too many deny UIDs, skip %u\n", uid);
+		pr_warn(PM_LOG_PREFIX "too many deny UIDs, skip %u\n", uid);
 		return -ENOSPC;
 	}
 
@@ -173,7 +172,7 @@ static int add_deny_uid(uid_t uid)
 		return 0;
 
 	deny_uid_list[deny_uid_count++] = uid;
-	pr_info("nohello: deny_uid[%u]=%u\n", deny_uid_count - 1, uid);
+	pr_info(PM_LOG_PREFIX "deny_uid[%u]=%u\n", deny_uid_count - 1, uid);
 	return 0;
 }
 
@@ -199,7 +198,7 @@ static int parse_deny_uids(void)
 
 		ret = kstrtouint(item, 10, &uid);
 		if (ret) {
-			pr_warn("nohello: invalid deny uid %s\n", item);
+			pr_warn(PM_LOG_PREFIX "invalid deny uid %s\n", item);
 			continue;
 		}
 
@@ -209,40 +208,49 @@ static int parse_deny_uids(void)
 	kfree(buf);
 
 	if (active_scope == SCOPE_DENY && !deny_uid_count)
-		pr_warn("nohello: scope_mode=deny but deny_uids is empty\n");
+		pr_warn(PM_LOG_PREFIX "scope_mode=deny but deny_uids is empty\n");
 
 	return 0;
 }
 
 static int add_target_path(const char *path_name)
 {
-	struct path path;
+	struct file *file;
 	struct inode *inode;
 	int ret;
 
 	if (target_count >= MAX_HIDE_TARGETS) {
-		pr_warn("nohello: too many targets, skip %s\n", path_name);
+		pr_warn(PM_LOG_PREFIX "too many targets, skip %s\n", path_name);
 		return -ENOSPC;
 	}
 
-	ret = kern_path(path_name, 0, &path);
-	if (ret) {
-		pr_warn("nohello: %s not found (err=%d), skip\n", path_name,
-			ret);
+	file = filp_open(path_name, O_PATH | O_CLOEXEC, 0);
+	if (IS_ERR(file))
+		file = filp_open(path_name, O_RDONLY | O_CLOEXEC, 0);
+	if (IS_ERR(file)) {
+		ret = PTR_ERR(file);
+		pr_warn(PM_LOG_PREFIX "%s not found/openable (err=%d), skip\n",
+			path_name, ret);
 		return ret;
 	}
 
-	inode = d_inode(path.dentry);
+	inode = file_inode(file);
+	if (!inode || !inode->i_sb) {
+		filp_close(file, NULL);
+		pr_warn(PM_LOG_PREFIX "%s has no inode, skip\n", path_name);
+		return -ENOENT;
+	}
+
 	targets[target_count].ino = inode->i_ino;
 	targets[target_count].dev = inode->i_sb->s_dev;
 	strscpy(targets[target_count].path, path_name,
 		sizeof(targets[target_count].path));
-	pr_info("nohello: target[%u] %s ino=%llu dev=%u:%u\n",
+	pr_info(PM_LOG_PREFIX "target[%u] %s ino=%llu dev=%u:%u\n",
 		target_count, path_name, targets[target_count].ino,
 		MAJOR(targets[target_count].dev),
 		MINOR(targets[target_count].dev));
 	target_count++;
-	path_put(&path);
+	filp_close(file, NULL);
 
 	return 0;
 }
@@ -275,7 +283,6 @@ static int resolve_target_paths(const char *paths)
 	return 0;
 }
 
-/* ---------- security_inode_permission ---------- */
 static struct kretprobe kp_inode_perm;
 
 struct inode_perm_data {
@@ -285,7 +292,7 @@ struct inode_perm_data {
 static int perm_inode_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct inode_perm_data *d = (struct inode_perm_data *)ri->data;
-	struct inode *inode = (struct inode *)regs->regs[0]; /* x0 */
+	struct inode *inode = (struct inode *)regs->regs[0];
 
 	d->matched = should_hide_for_current() && is_target_inode(inode);
 	return 0;
@@ -300,14 +307,16 @@ static int perm_exit(struct kretprobe_instance *ri, struct pt_regs *regs)
 	return 0;
 }
 
-/* ---------- security_inode_getattr ---------- */
 static struct kretprobe kp_inode_getattr;
 
 static int getattr_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct inode_perm_data *d = (struct inode_perm_data *)ri->data;
-	struct path *path = (struct path *)regs->regs[0]; /* x0 */
-	struct inode *inode = d_inode(path->dentry);
+	struct path *path = (struct path *)regs->regs[0];
+	struct inode *inode = NULL;
+
+	if (path && path->dentry)
+		inode = d_inode(path->dentry);
 
 	d->matched = should_hide_for_current() && is_target_inode(inode);
 	return 0;
@@ -322,7 +331,6 @@ static int getattr_exit(struct kretprobe_instance *ri, struct pt_regs *regs)
 	return 0;
 }
 
-/* ---------- __arm64_sys_getdents64 ---------- */
 #define GETDENTS_BUF_LIMIT 65536u
 
 static struct kretprobe kp_getdents;
@@ -335,11 +343,6 @@ struct getdents_cb_data {
 	bool scoped;
 };
 
-/*
- * Entry: __arm64_sys_getdents64(const struct pt_regs *syscall_regs)
- *   syscall_regs->regs[1] = user buffer (dirent)
- *   syscall_regs->regs[2] = count
- */
 static int getdents_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct getdents_cb_data *d = (struct getdents_cb_data *)ri->data;
@@ -351,16 +354,12 @@ static int getdents_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 	d->kbuf_len = 0;
 	d->scoped = should_hide_for_current();
 
-	if (!d->scoped)
-		return 0;
-
-	if (!user_regs)
+	if (!d->scoped || !user_regs)
 		return 0;
 
 	count = (unsigned int)user_regs->regs[2];
 	d->dirent = (struct linux_dirent64 __user *)user_regs->regs[1];
 
-	/* Guard against excessively large allocations */
 	count = min(count, GETDENTS_BUF_LIMIT);
 	if (!count)
 		return 0;
@@ -374,7 +373,7 @@ static int getdents_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 static int getdents_exit(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct getdents_cb_data *d = (struct getdents_cb_data *)ri->data;
-	long ret = regs->regs[0]; /* return value = bytes written */
+	long ret = regs->regs[0];
 	struct linux_dirent64 *kbuf, *prev, *cur;
 	long bpos, new_len;
 	const size_t hdr_off = offsetof(struct linux_dirent64, d_name);
@@ -385,8 +384,8 @@ static int getdents_exit(struct kretprobe_instance *ri, struct pt_regs *regs)
 		goto out;
 
 	if ((size_t)ret > d->kbuf_len) {
-		pr_debug_ratelimited("nohello: getdents return too large "
-				     "(%ld > %zu), skip filtering\n",
+		pr_debug_ratelimited(PM_LOG_PREFIX
+				     "getdents return too large (%ld > %zu), skip filtering\n",
 				     ret, d->kbuf_len);
 		goto out;
 	}
@@ -432,8 +431,8 @@ static int getdents_exit(struct kretprobe_instance *ri, struct pt_regs *regs)
 
 	if (modified) {
 		if (copy_to_user(d->dirent, kbuf, new_len))
-			pr_warn_ratelimited("nohello: copy_to_user failed, "
-					    "directory may leak\n");
+			pr_warn_ratelimited(PM_LOG_PREFIX
+					    "copy_to_user failed, directory may leak\n");
 		else
 			regs->regs[0] = new_len;
 	}
@@ -445,8 +444,7 @@ out:
 	return 0;
 }
 
-/* ---------- module init / exit ---------- */
-static int __init nohello_init(void)
+static int __init pathmask_init(void)
 {
 	const char *paths = target_paths[0] ? target_paths : target_path;
 	int ret;
@@ -461,11 +459,10 @@ static int __init nohello_init(void)
 
 	ret = resolve_target_paths(paths);
 	if (ret) {
-		pr_err("nohello: no valid targets (err=%d)\n", ret);
+		pr_err(PM_LOG_PREFIX "no valid targets (err=%d)\n", ret);
 		return ret;
 	}
 
-	/* security_inode_permission */
 	kp_inode_perm.kp.symbol_name = "security_inode_permission";
 	kp_inode_perm.entry_handler = perm_inode_entry;
 	kp_inode_perm.handler = perm_exit;
@@ -473,13 +470,13 @@ static int __init nohello_init(void)
 	kp_inode_perm.maxactive = 40;
 	ret = register_kretprobe(&kp_inode_perm);
 	if (ret) {
-		pr_err("nohello: register_kretprobe(security_inode_permission) "
-		       "failed: %d\n", ret);
+		pr_err(PM_LOG_PREFIX
+		       "register_kretprobe(security_inode_permission) failed: %d\n",
+		       ret);
 		return ret;
 	}
-	pr_info("nohello: hooked security_inode_permission\n");
+	pr_info(PM_LOG_PREFIX "hooked security_inode_permission\n");
 
-	/* security_inode_getattr */
 	kp_inode_getattr.kp.symbol_name = "security_inode_getattr";
 	kp_inode_getattr.entry_handler = getattr_entry;
 	kp_inode_getattr.handler = getattr_exit;
@@ -487,15 +484,15 @@ static int __init nohello_init(void)
 	kp_inode_getattr.maxactive = 40;
 	ret = register_kretprobe(&kp_inode_getattr);
 	if (ret) {
-		pr_err("nohello: register_kretprobe(security_inode_getattr) "
-		       "failed: %d\n", ret);
+		pr_err(PM_LOG_PREFIX
+		       "register_kretprobe(security_inode_getattr) failed: %d\n",
+		       ret);
 		unregister_kretprobe(&kp_inode_perm);
 		return ret;
 	}
-	pr_info("nohello: hooked security_inode_getattr\n");
+	pr_info(PM_LOG_PREFIX "hooked security_inode_getattr\n");
 
 	if (hide_dirents) {
-		/* __arm64_sys_getdents64 */
 		kp_getdents.kp.symbol_name = "__arm64_sys_getdents64";
 		kp_getdents.entry_handler = getdents_entry;
 		kp_getdents.handler = getdents_exit;
@@ -503,26 +500,25 @@ static int __init nohello_init(void)
 		kp_getdents.maxactive = 20;
 		ret = register_kretprobe(&kp_getdents);
 		if (ret) {
-			pr_warn("nohello: register_kretprobe(__arm64_sys_getdents64) "
-				"failed: %d; file visible in listings but still "
-				"hidden from direct access\n",
+			pr_warn(PM_LOG_PREFIX
+				"register_kretprobe(__arm64_sys_getdents64) failed: %d; listings may leak\n",
 				ret);
 		} else {
 			getdents_registered = true;
-			pr_info("nohello: hooked __arm64_sys_getdents64\n");
+			pr_info(PM_LOG_PREFIX "hooked __arm64_sys_getdents64\n");
 		}
 	} else {
-		pr_info("nohello: hide_dirents=0, directory listings are "
-			"not filtered\n");
+		pr_info(PM_LOG_PREFIX
+			"hide_dirents=0, directory listings are not filtered\n");
 	}
 
-	pr_info("nohello: loaded -- %u target(s) hidden, scope=%s, "
-		"deny_uid_count=%u hide_isolated=%d\n",
+	pr_info(PM_LOG_PREFIX
+		"loaded -- %u target(s) hidden, scope=%s, deny_uid_count=%u hide_isolated=%d\n",
 		target_count, scope_mode, deny_uid_count, hide_isolated);
 	return 0;
 }
 
-static void __exit nohello_exit(void)
+static void __exit pathmask_exit(void)
 {
 	unregister_kretprobe(&kp_inode_perm);
 	unregister_kretprobe(&kp_inode_getattr);
@@ -531,16 +527,16 @@ static void __exit nohello_exit(void)
 		getdents_registered = false;
 	}
 
-	pr_info("nohello: unloaded -- %u target(s) visible again\n",
+	pr_info(PM_LOG_PREFIX "unloaded -- %u target(s) visible again\n",
 		target_count);
 }
 
-module_init(nohello_init);
-module_exit(nohello_exit);
+module_init(pathmask_init);
+module_exit(pathmask_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("lkm-build");
-MODULE_DESCRIPTION("Hide a file by intercepting VFS operations via kprobes");
+MODULE_DESCRIPTION("Selective path masking demo via kretprobes");
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
 MODULE_IMPORT_NS("VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver");
 #else

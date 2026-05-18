@@ -12,20 +12,21 @@
 body {
 	margin: 0;
 	min-height: 100vh;
-	padding-bottom: 88px;
+	padding-bottom: 92px;
+	background: Canvas;
 }
 
 .topbar {
 	position: sticky;
 	top: 0;
-	z-index: 10;
+	z-index: 20;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 16px;
-	padding: 18px 18px 14px;
-	background: color-mix(in srgb, Canvas 88%, CanvasText 12%);
-	border-bottom: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+	gap: 14px;
+	padding: 16px 14px 12px;
+	background: color-mix(in srgb, Canvas 90%, CanvasText 10%);
+	border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
 }
 
 h1,
@@ -47,13 +48,74 @@ h2 {
 #statusText {
 	margin-top: 4px;
 	font-size: 13px;
-	color: color-mix(in srgb, CanvasText 68%, transparent);
+	color: color-mix(in srgb, CanvasText 66%, transparent);
+}
+
+.tabs {
+	position: sticky;
+	top: 67px;
+	z-index: 18;
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 6px;
+	padding: 8px 14px;
+	background: Canvas;
+	border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+}
+
+.tab,
+.logTab {
+	min-height: 38px;
+}
+
+.tab.active,
+.logTab.active {
+	background: Highlight;
+	color: HighlightText;
+	border-color: Highlight;
 }
 
 main {
 	display: grid;
 	gap: 14px;
 	padding: 14px;
+}
+
+.tabPanel {
+	display: none;
+	gap: 14px;
+}
+
+.tabPanel.active {
+	display: grid;
+}
+
+.summaryGrid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 10px;
+}
+
+.metric {
+	min-height: 72px;
+	padding: 12px;
+	border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+	border-radius: 8px;
+	background: color-mix(in srgb, Canvas 94%, CanvasText 6%);
+}
+
+.metric span {
+	display: block;
+	margin-bottom: 6px;
+	font-size: 12px;
+	color: color-mix(in srgb, CanvasText 60%, transparent);
+}
+
+.metric strong {
+	display: block;
+	overflow-wrap: anywhere;
+	font-size: 18px;
+	font-weight: 650;
 }
 
 .panel {
@@ -71,10 +133,18 @@ main {
 	margin-bottom: 12px;
 }
 
-.inlineControls {
+.inlineControls,
+.buttonGrid,
+.logTabs,
+.pager {
 	display: flex;
 	align-items: center;
 	gap: 8px;
+}
+
+.buttonGrid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
 }
 
 .stack {
@@ -114,9 +184,13 @@ button {
 	min-height: 40px;
 	border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
 	border-radius: 6px;
-	padding: 0 14px;
+	padding: 0 12px;
 	color: CanvasText;
 	background: color-mix(in srgb, Canvas 88%, CanvasText 12%);
+}
+
+button:disabled {
+	opacity: .52;
 }
 
 button:active {
@@ -175,7 +249,7 @@ button:active {
 
 .appList {
 	display: grid;
-	max-height: 390px;
+	max-height: 340px;
 	overflow: auto;
 	border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
 	border-radius: 8px;
@@ -205,13 +279,75 @@ button:active {
 	color: color-mix(in srgb, CanvasText 58%, transparent);
 }
 
+.healthList {
+	display: grid;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.healthItem {
+	padding: 10px 11px;
+	border-radius: 7px;
+	border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+	background: Canvas;
+}
+
+.healthItem.ok {
+	border-color: color-mix(in srgb, #26a269 44%, transparent);
+}
+
+.healthItem.warn {
+	border-color: color-mix(in srgb, #e5a50a 58%, transparent);
+}
+
+.healthItem.bad {
+	border-color: color-mix(in srgb, #c01c28 56%, transparent);
+}
+
+.healthItem strong {
+	display: block;
+	margin-bottom: 4px;
+	font-size: 14px;
+}
+
+.healthItem span {
+	display: block;
+	font-size: 13px;
+	color: color-mix(in srgb, CanvasText 68%, transparent);
+}
+
+.monoBox {
+	font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+	font-size: 12px;
+	line-height: 1.45;
+	white-space: pre;
+}
+
+.logTabs {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	margin-bottom: 10px;
+}
+
+.pager {
+	justify-content: space-between;
+	margin-top: 10px;
+}
+
+.pager span {
+	font-size: 13px;
+	color: color-mix(in srgb, CanvasText 66%, transparent);
+}
+
 .actions {
 	position: fixed;
 	left: 0;
 	right: 0;
 	bottom: 0;
 	display: grid;
-	grid-template-columns: 1fr 1fr;
+	grid-template-columns: 1fr 1.25fr;
 	gap: 10px;
 	padding: 12px 14px 16px;
 	background: color-mix(in srgb, Canvas 90%, CanvasText 10%);
@@ -228,32 +364,37 @@ button:active {
 	position: fixed;
 	left: 14px;
 	right: 14px;
-	bottom: 86px;
+	bottom: 90px;
 	padding: 12px 14px;
 	border-radius: 8px;
 	background: color-mix(in srgb, CanvasText 86%, Canvas);
 	color: Canvas;
 	box-shadow: 0 8px 28px rgba(0, 0, 0, .24);
+	z-index: 30;
 }
 
 @media (min-width: 760px) {
-	main {
-		max-width: 860px;
+	main,
+	.tabs {
+		max-width: 900px;
 		margin: 0 auto;
 	}
 
+	.summaryGrid {
+		grid-template-columns: repeat(4, 1fr);
+	}
+
 	.topbar {
-		padding-left: max(18px, calc((100vw - 860px) / 2));
-		padding-right: max(18px, calc((100vw - 860px) / 2));
+		padding-left: max(18px, calc((100vw - 900px) / 2));
+		padding-right: max(18px, calc((100vw - 900px) / 2));
 	}
 
 	.actions {
 		left: 50%;
-		width: min(860px, calc(100vw - 28px));
+		width: min(900px, calc(100vw - 28px));
 		transform: translateX(-50%);
 		border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
 		border-bottom: 0;
 		border-radius: 8px 8px 0 0;
 	}
 }
-
