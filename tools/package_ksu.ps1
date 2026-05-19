@@ -1,12 +1,12 @@
 param(
     [string]$KoPath = "kernel\pathmask.ko",
     [string]$Output = "out\pathmask-ksu.zip",
-    [string]$TargetPath = "/dev/cpuset/scene-daemon,/dev/scene,/system_ext/app/SoterService",
+    [string]$TargetPath = "/dev/cpuset/scene-daemon,/dev/scene",
     [ValidateSet("0", "1")]
     [string]$HideDirents = "1",
     [ValidateSet("global", "deny")]
     [string]$ScopeMode = "deny",
-    [string]$DenyPackage = "com.chunqiunativecheck,com.eltavine.duckdetector,luna.safe.luna",
+    [string]$DenyPackage = "com.chunqiunativecheck,com.eltavine.duckdetector,luna.safe.luna,chunqiu.safe.detector",
     [string]$DenyUid = "",
     [int]$TargetWaitSeconds = 90,
     [int]$PackageWaitSeconds = 90,
