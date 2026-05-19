@@ -3,10 +3,10 @@ set -eu
 
 KO_PATH="${1:-kernel/pathmask.ko}"
 OUTPUT="${2:-out/pathmask-ksu.zip}"
-TARGET_PATHS="${TARGET_PATHS:-${TARGET_PATH:-/dev/cpuset/scene-daemon,/dev/scene,/system_ext/app/SoterService}}"
+TARGET_PATHS="${TARGET_PATHS:-${TARGET_PATH:-/dev/cpuset/scene-daemon,/dev/scene}}"
 HIDE_DIRENTS="${HIDE_DIRENTS:-1}"
 SCOPE_MODE="${SCOPE_MODE:-deny}"
-DENY_PACKAGES="${DENY_PACKAGES:-com.chunqiunativecheck,com.eltavine.duckdetector,luna.safe.luna}"
+DENY_PACKAGES="${DENY_PACKAGES:-com.chunqiunativecheck,com.eltavine.duckdetector,luna.safe.luna,chunqiu.safe.detector}"
 DENY_UIDS="${DENY_UIDS:-}"
 TARGET_WAIT_SECONDS="${TARGET_WAIT_SECONDS:-90}"
 PACKAGE_WAIT_SECONDS="${PACKAGE_WAIT_SECONDS:-90}"
