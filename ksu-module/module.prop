@@ -2,5 +2,5 @@ id=pathmask
 name=PathMask 路径遮罩
 version=2.2.0
 versionCode=11
-author=Andrea-lyz
+author=zaomi
 description=Android LKM path masking with blacklist, persistent config, WebUI diagnostics and hot reload. 安卓 LKM 路径遮罩，支持黑名单、持久化配置、WebUI 诊断和热重载。
